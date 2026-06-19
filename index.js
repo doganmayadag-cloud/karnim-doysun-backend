@@ -5,7 +5,7 @@ const bcrypt = require('bcryptjs');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
@@ -25,7 +25,6 @@ app.post('/api/kayit', async (req, res) => {
       return res.status(400).json({ hata: 'Lütfen tüm alanları doldur.' });
     }
 
-    // E-posta zaten var mı kontrol et
     const { data: mevcut } = await supabase
       .from('kullanicilar')
       .select('id')
@@ -36,7 +35,6 @@ app.post('/api/kayit', async (req, res) => {
       return res.status(409).json({ hata: 'Bu e-posta zaten kayıtlı.' });
     }
 
-    // Şifreyi hashle
     const sifreHash = await bcrypt.hash(sifre, 10);
 
     const { data, error } = await supabase
@@ -56,7 +54,6 @@ app.post('/api/kayit', async (req, res) => {
 
     const yeniKullanici = data[0];
 
-    // İşletme ise kendi lokantasını oluştur
     if (kullaniciTipi === 'isletme') {
       const { data: lokantaData, error: lokantaError } = await supabase
         .from('lokantalar')
@@ -65,8 +62,8 @@ app.post('/api/kayit', async (req, res) => {
           telefon: telefon,
           ilce: 'Kadıköy',
           puan: 0,
-          aktif: true,
-          onaylandi: true,
+          aktif: false,
+          onaylandi: false,
           sahip_id: yeniKullanici.id
         }])
         .select();
@@ -75,9 +72,9 @@ app.post('/api/kayit', async (req, res) => {
         return res.status(500).json({ hata: 'Lokanta oluşturulamadı: ' + lokantaError.message });
       }
       yeniKullanici.lokanta_id = lokantaData[0].id;
+      yeniKullanici.lokanta_onaylandi = false;
     }
 
-    // Şifreyi cevapta gösterme
     delete yeniKullanici.sifre;
     res.json(yeniKullanici);
 
@@ -111,15 +108,15 @@ app.post('/api/giris', async (req, res) => {
       return res.status(401).json({ hata: 'E-posta veya şifre hatalı.' });
     }
 
-    // İşletme ise lokanta_id ekle
     if (kullanici.kullanici_tipi === 'isletme') {
       const { data: lokantaData } = await supabase
         .from('lokantalar')
-        .select('id')
+        .select('id, onaylandi')
         .eq('sahip_id', kullanici.id)
         .maybeSingle();
       if (lokantaData) {
         kullanici.lokanta_id = lokantaData.id;
+        kullanici.lokanta_onaylandi = lokantaData.onaylandi;
       }
     }
 
