@@ -12,7 +12,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 app.use(cors());
 app.use(express.json());
 
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
+  // Supabase'i de aktif tutmak için küçük bir sorgu
+  await supabase.from('lokantalar').select('id').limit(1);
   res.json({ mesaj: 'Karnım Doysun Backend çalışıyor! 🚀' });
 });
 
