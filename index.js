@@ -2,9 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
-const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const { Resend } = require('resend');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -13,23 +13,14 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Supabase URL ve anahtarı ayarlanmamış. Lütfen .env dosyanıza SUPABASE_URL ve SUPABASE_KEY ekleyin.');
+  throw new Error('Supabase URL ve anahtarı ayarlanmamış.');
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Geçici doğrulama kodları (bellekte tutuluyor)
-// { 'email@x.com': { kod: '123456', expires: Date, adSoyad, telefon, sifreHash, kullaniciTipi } }
+// Geçici doğrulama kodları
 const dogrulamaKodlari = {};
-
-// Nodemailer - Gmail
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS
-  }
-});
 
 app.use(cors({ origin: FRONTEND_URL, credentials: true }));
 app.use(express.json());
@@ -41,7 +32,6 @@ app.get('/', async (req, res) => {
 });
 
 // ── KAYIT OL ──
-// Artık kullanıcıyı DB'ye KAYDETMEZ — sadece doğrulama kodu gönderir
 app.post('/api/kayit', async (req, res) => {
   try {
     const { adSoyad, email, telefon, sifre, kullaniciTipi } = req.body;
@@ -49,7 +39,6 @@ app.post('/api/kayit', async (req, res) => {
     if (!adSoyad || !email || !sifre) {
       return res.status(400).json({ hata: 'Lütfen tüm alanları doldur.' });
     }
-
     if (sifre.length < 6) {
       return res.status(400).json({ hata: 'Şifre en az 6 karakter olmalı.' });
     }
@@ -65,26 +54,20 @@ app.post('/api/kayit', async (req, res) => {
       return res.status(409).json({ hata: 'Bu e-posta zaten kayıtlı.' });
     }
 
-    // Şifreyi şimdi hashle, doğrulama sonrası kaydet
     const sifreHash = await bcrypt.hash(sifre, 12);
 
-    // 6 haneli kod üret
+    // 6 haneli doğrulama kodu üret
     const kod = crypto.randomInt(100000, 999999).toString();
     const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 dakika
 
-    // Kodu ve kullanıcı bilgilerini geçici sakla
     dogrulamaKodlari[email] = {
-      kod,
-      expires,
-      adSoyad,
-      telefon,
-      sifreHash,
-      kullaniciTipi: kullaniciTipi || 'musteri'
+      kod, expires, adSoyad, telefon,
+      sifreHash, kullaniciTipi: kullaniciTipi || 'musteri'
     };
 
-    // Doğrulama mailini gönder
-    await transporter.sendMail({
-      from: `"Karnım Doysun" <${process.env.MAIL_USER}>`,
+    // Resend ile mail gönder
+    const { error: mailError } = await resend.emails.send({
+      from: 'Karnım Doysun <onboarding@resend.dev>',
       to: email,
       subject: 'Karnım Doysun — E-posta Doğrulama Kodun',
       html: `
@@ -95,7 +78,7 @@ app.post('/api/kayit', async (req, res) => {
           </div>
           <div style="background:#fff;border-radius:10px;padding:28px;text-align:center;border:1px solid #e8e8e8;">
             <p style="color:#333;font-size:15px;margin-bottom:20px;">Merhaba <strong>${adSoyad}</strong>,</p>
-            <p style="color:#555;font-size:13px;margin-bottom:20px;">Karnım Doysun hesabını oluşturmak için aşağıdaki doğrulama kodunu gir:</p>
+            <p style="color:#555;font-size:13px;margin-bottom:20px;">Karnım Doysun hesabını oluşturmak için doğrulama kodunu gir:</p>
             <div style="font-size:38px;font-weight:700;letter-spacing:10px;color:#173A2E;padding:20px;background:#FAF6EC;border-radius:8px;border:2px dashed #E8B341;">
               ${kod}
             </div>
@@ -108,11 +91,16 @@ app.post('/api/kayit', async (req, res) => {
       `
     });
 
+    if (mailError) {
+      console.error('Mail hatası:', mailError);
+      return res.status(500).json({ hata: 'Doğrulama kodu gönderilemedi.' });
+    }
+
     res.json({ mesaj: 'Doğrulama kodu gönderildi.', email });
 
   } catch (err) {
     console.error('Kayıt hatası:', err);
-    res.status(500).json({ hata: 'Doğrulama kodu gönderilemedi. Mail ayarlarını kontrol et.' });
+    res.status(500).json({ hata: err.message });
   }
 });
 
@@ -122,17 +110,14 @@ app.post('/api/dogrulama-gonder', async (req, res) => {
   if (!email) return res.status(400).json({ hata: 'E-posta gerekli.' });
 
   const mevcut = dogrulamaKodlari[email];
-  if (!mevcut) {
-    return res.status(400).json({ hata: 'Önce kayıt ol.' });
-  }
+  if (!mevcut) return res.status(400).json({ hata: 'Önce kayıt ol.' });
 
-  // Yeni kod üret
   const kod = crypto.randomInt(100000, 999999).toString();
   dogrulamaKodlari[email] = { ...mevcut, kod, expires: new Date(Date.now() + 10 * 60 * 1000) };
 
   try {
-    await transporter.sendMail({
-      from: `"Karnım Doysun" <${process.env.MAIL_USER}>`,
+    await resend.emails.send({
+      from: 'Karnım Doysun <onboarding@resend.dev>',
       to: email,
       subject: 'Karnım Doysun — Yeni Doğrulama Kodun',
       html: `
@@ -161,7 +146,7 @@ app.post('/api/dogrula', async (req, res) => {
     const kayit = dogrulamaKodlari[email];
 
     if (!kayit) {
-      return res.status(400).json({ hata: 'Bu e-posta için doğrulama kodu bulunamadı. Tekrar kayıt ol.' });
+      return res.status(400).json({ hata: 'Doğrulama kodu bulunamadı. Tekrar kayıt ol.' });
     }
     if (new Date() > kayit.expires) {
       delete dogrulamaKodlari[email];
@@ -171,7 +156,7 @@ app.post('/api/dogrula', async (req, res) => {
       return res.status(400).json({ hata: 'Kod geçersiz. Tekrar dene.' });
     }
 
-    // Kod doğru → kullanıcıyı şimdi DB'ye kaydet
+    // Kod doğru → kullanıcıyı DB'ye kaydet
     const { data, error } = await supabase
       .from('kullanicilar')
       .insert([{
@@ -190,7 +175,6 @@ app.post('/api/dogrula', async (req, res) => {
 
     const yeniKullanici = data[0];
 
-    // İşletme ise lokanta kaydı oluştur
     if (kayit.kullaniciTipi === 'isletme') {
       const { data: lokantaData, error: lokantaError } = await supabase
         .from('lokantalar')
@@ -212,9 +196,7 @@ app.post('/api/dogrula', async (req, res) => {
       yeniKullanici.lokanta_onaylandi = false;
     }
 
-    // Geçici kaydı temizle
     delete dogrulamaKodlari[email];
-
     delete yeniKullanici.sifre;
     res.json(yeniKullanici);
 
@@ -243,7 +225,6 @@ app.post('/api/giris', async (req, res) => {
       return res.status(401).json({ hata: 'E-posta veya şifre hatalı.' });
     }
 
-    // E-posta doğrulanmış mı?
     if (!kullanici.email_dogrulandi) {
       return res.status(403).json({ hata: 'E-posta adresin henüz doğrulanmamış. Lütfen mailini kontrol et.' });
     }
