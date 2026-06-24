@@ -8,7 +8,6 @@ const { Resend } = require('resend');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
@@ -19,10 +18,10 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Geçici doğrulama kodları
 const dogrulamaKodlari = {};
 
-app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+// TÜM ORIGINLERE İZİN VER
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // ── CANLI TUT ──
@@ -43,7 +42,6 @@ app.post('/api/kayit', async (req, res) => {
       return res.status(400).json({ hata: 'Şifre en az 6 karakter olmalı.' });
     }
 
-    // E-posta zaten kayıtlı mı?
     const { data: mevcut } = await supabase
       .from('kullanicilar')
       .select('id')
@@ -55,44 +53,34 @@ app.post('/api/kayit', async (req, res) => {
     }
 
     const sifreHash = await bcrypt.hash(sifre, 12);
-
-    // 6 haneli doğrulama kodu üret
     const kod = crypto.randomInt(100000, 999999).toString();
-    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 dakika
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
 
     dogrulamaKodlari[email] = {
       kod, expires, adSoyad, telefon,
       sifreHash, kullaniciTipi: kullaniciTipi || 'musteri'
     };
 
-    // Resend ile mail gönder
     const { error: mailError } = await resend.emails.send({
       from: 'Karnım Doysun <onboarding@resend.dev>',
       to: email,
       subject: 'Karnım Doysun — E-posta Doğrulama Kodun',
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#f9f9f9;border-radius:12px;">
-          <div style="text-align:center;margin-bottom:24px;">
-            <h2 style="color:#173A2E;margin:0;font-size:22px;">🍽 Karnım Doysun</h2>
-            <p style="color:#666;font-size:13px;margin-top:6px;">Hesabını doğrula</p>
-          </div>
+          <h2 style="color:#173A2E;text-align:center;">🍽 Karnım Doysun</h2>
           <div style="background:#fff;border-radius:10px;padding:28px;text-align:center;border:1px solid #e8e8e8;">
-            <p style="color:#333;font-size:15px;margin-bottom:20px;">Merhaba <strong>${adSoyad}</strong>,</p>
-            <p style="color:#555;font-size:13px;margin-bottom:20px;">Karnım Doysun hesabını oluşturmak için doğrulama kodunu gir:</p>
+            <p style="color:#333;font-size:15px;">Merhaba <strong>${adSoyad}</strong>,</p>
+            <p style="color:#555;font-size:13px;">Doğrulama kodun:</p>
             <div style="font-size:38px;font-weight:700;letter-spacing:10px;color:#173A2E;padding:20px;background:#FAF6EC;border-radius:8px;border:2px dashed #E8B341;">
               ${kod}
             </div>
-            <p style="color:#999;font-size:12px;margin-top:16px;">⏱ Bu kod <strong>10 dakika</strong> geçerlidir.</p>
+            <p style="color:#999;font-size:12px;margin-top:16px;">⏱ Bu kod 10 dakika geçerlidir.</p>
           </div>
-          <p style="color:#bbb;font-size:11px;text-align:center;margin-top:20px;">
-            Bu e-postayı siz talep etmediyseniz güvenle görmezden gelebilirsiniz.
-          </p>
         </div>
       `
     });
 
     if (mailError) {
-      console.error('Mail hatası:', mailError);
       return res.status(500).json({ hata: 'Doğrulama kodu gönderilemedi.' });
     }
 
@@ -120,16 +108,7 @@ app.post('/api/dogrulama-gonder', async (req, res) => {
       from: 'Karnım Doysun <onboarding@resend.dev>',
       to: email,
       subject: 'Karnım Doysun — Yeni Doğrulama Kodun',
-      html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
-          <h2 style="color:#173A2E;">🍽 Karnım Doysun</h2>
-          <p>Yeni doğrulama kodun:</p>
-          <div style="font-size:38px;font-weight:700;letter-spacing:10px;color:#173A2E;padding:20px;background:#FAF6EC;border-radius:8px;border:2px dashed #E8B341;text-align:center;">
-            ${kod}
-          </div>
-          <p style="color:#999;font-size:12px;margin-top:16px;">⏱ Bu kod 10 dakika geçerlidir.</p>
-        </div>
-      `
+      html: `<div style="font-family:sans-serif;padding:32px;"><h2 style="color:#173A2E;">🍽 Karnım Doysun</h2><div style="font-size:38px;font-weight:700;letter-spacing:10px;color:#173A2E;padding:20px;background:#FAF6EC;border-radius:8px;border:2px dashed #E8B341;text-align:center;">${kod}</div><p style="color:#999;font-size:12px;margin-top:16px;">⏱ Bu kod 10 dakika geçerlidir.</p></div>`
     });
     res.json({ mesaj: 'Yeni kod gönderildi.' });
   } catch (err) {
@@ -137,26 +116,22 @@ app.post('/api/dogrulama-gonder', async (req, res) => {
   }
 });
 
-// ── E-POSTA DOĞRULA ve KAYDI TAMAMLA ──
+// ── E-POSTA DOĞRULA ──
 app.post('/api/dogrula', async (req, res) => {
   try {
     const { email, kod } = req.body;
     if (!email || !kod) return res.status(400).json({ hata: 'E-posta ve kod gerekli.' });
 
     const kayit = dogrulamaKodlari[email];
-
-    if (!kayit) {
-      return res.status(400).json({ hata: 'Doğrulama kodu bulunamadı. Tekrar kayıt ol.' });
-    }
+    if (!kayit) return res.status(400).json({ hata: 'Doğrulama kodu bulunamadı. Tekrar kayıt ol.' });
     if (new Date() > kayit.expires) {
       delete dogrulamaKodlari[email];
-      return res.status(400).json({ hata: 'Kodun süresi dolmuş. Yeni kod talep et.' });
+      return res.status(400).json({ hata: 'Kodun süresi dolmuş.' });
     }
     if (kayit.kod !== kod.toString()) {
-      return res.status(400).json({ hata: 'Kod geçersiz. Tekrar dene.' });
+      return res.status(400).json({ hata: 'Kod geçersiz.' });
     }
 
-    // Kod doğru → kullanıcıyı DB'ye kaydet
     const { data, error } = await supabase
       .from('kullanicilar')
       .insert([{
@@ -169,9 +144,7 @@ app.post('/api/dogrula', async (req, res) => {
       }])
       .select();
 
-    if (error) {
-      return res.status(500).json({ hata: error.message });
-    }
+    if (error) return res.status(500).json({ hata: error.message });
 
     const yeniKullanici = data[0];
 
@@ -189,9 +162,7 @@ app.post('/api/dogrula', async (req, res) => {
         }])
         .select();
 
-      if (lokantaError) {
-        return res.status(500).json({ hata: 'Lokanta oluşturulamadı: ' + lokantaError.message });
-      }
+      if (lokantaError) return res.status(500).json({ hata: 'Lokanta oluşturulamadı.' });
       yeniKullanici.lokanta_id = lokantaData[0].id;
       yeniKullanici.lokanta_onaylandi = false;
     }
@@ -226,7 +197,7 @@ app.post('/api/giris', async (req, res) => {
     }
 
     if (!kullanici.email_dogrulandi) {
-      return res.status(403).json({ hata: 'E-posta adresin henüz doğrulanmamış. Lütfen mailini kontrol et.' });
+      return res.status(403).json({ hata: 'E-posta adresin henüz doğrulanmamış.' });
     }
 
     const dogruMu = await bcrypt.compare(sifre, kullanici.sifre);
