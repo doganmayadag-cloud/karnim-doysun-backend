@@ -7,7 +7,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { Resend } = require('resend');
 
 const app = express();
-const PORT = process.env.PORT || 5000;v
+const PORT = process.env.PORT || 5000;
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
