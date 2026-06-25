@@ -254,6 +254,56 @@ app.get('/api/lokanta/:id/yemekler', async (req, res) => {
     res.status(500).json({ hata: err.message });
   }
 });
+// ── SİPARİŞ VER ──
+app.post('/api/siparis', async (req, res) => {
+  try {
+    const { kullanici_id, lokanta_id, toplam_fiyat, kalemler } = req.body;
+
+    const { data: siparis, error: siparisHata } = await supabase
+      .from('siparisler')
+      .insert([{
+        kullanici_id,
+        lokanta_id,
+        toplam_fiyat,
+        durum: 'bekliyor'
+      }])
+      .select()
+      .single();
+
+    if (siparisHata) return res.status(500).json({ hata: siparisHata.message });
+
+    const kalemData = kalemler.map(k => ({
+      siparis_id: siparis.id,
+      yemek_id: k.yemek_id,
+      adet: k.adet,
+      fiyat: k.fiyat
+    }));
+
+    const { error: kalemHata } = await supabase
+      .from('siparis_kalemleri')
+      .insert(kalemData);
+
+    if (kalemHata) return res.status(500).json({ hata: kalemHata.message });
+
+    for (const k of kalemler) {
+      const { data: yemek } = await supabase
+        .from('yemekler')
+        .select('porsiyon_kaldi')
+        .eq('id', k.yemek_id)
+        .single();
+      if (yemek) {
+        await supabase
+          .from('yemekler')
+          .update({ porsiyon_kaldi: Math.max(0, yemek.porsiyon_kaldi - k.adet) })
+          .eq('id', k.yemek_id);
+      }
+    }
+
+    res.json({ mesaj: 'Sipariş alındı!', siparis_id: siparis.id });
+  } catch (err) {
+    res.status(500).json({ hata: err.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ Backend ${PORT} portunda çalışıyor!`);
 });
