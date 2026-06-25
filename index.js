@@ -304,6 +304,20 @@ app.post('/api/siparis', async (req, res) => {
     res.status(500).json({ hata: err.message });
   }
 });
+// ── SİPARİŞLERİM ──
+app.get('/api/siparislerim/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('siparisler')
+      .select('*, lokantalar(ad)')
+      .eq('kullanici_id', req.params.id)
+      .order('olusturma_tarihi', { ascending: false });
+    if (error) return res.status(500).json({ hata: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ hata: err.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ Backend ${PORT} portunda çalışıyor!`);
 });
