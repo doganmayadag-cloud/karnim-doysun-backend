@@ -225,7 +225,20 @@ app.post('/api/giris', async (req, res) => {
     res.status(500).json({ hata: err.message });
   }
 });
-
+// ── LOKANTALAR ──
+app.get('/api/lokantalar', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('lokantalar')
+      .select('*')
+      .eq('aktif', true)
+      .eq('onaylandi', true);
+    if (error) return res.status(500).json({ hata: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ hata: err.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ Backend ${PORT} portunda çalışıyor!`);
 });
