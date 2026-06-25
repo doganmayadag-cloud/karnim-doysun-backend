@@ -239,6 +239,21 @@ app.get('/api/lokantalar', async (req, res) => {
     res.status(500).json({ hata: err.message });
   }
 });
+// ── LOKANTA YEMEKLERİ ──
+app.get('/api/lokanta/:id/yemekler', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('yemekler')
+      .select('*')
+      .eq('lokanta_id', req.params.id)
+      .eq('aktif', true)
+      .gt('porsiyon_kaldi', 0);
+    if (error) return res.status(500).json({ hata: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ hata: err.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ Backend ${PORT} portunda çalışıyor!`);
 });
