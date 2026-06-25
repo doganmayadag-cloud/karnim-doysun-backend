@@ -318,6 +318,50 @@ app.get('/api/siparislerim/:id', async (req, res) => {
     res.status(500).json({ hata: err.message });
   }
 });
+// ── LOKANTA SİPARİŞLERİ ──
+app.get('/api/lokanta/:id/siparisler', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('siparisler')
+      .select('*, kullanicilar(ad_soyad)')
+      .eq('lokanta_id', req.params.id)
+      .order('olusturma_tarihi', { ascending: false });
+    if (error) return res.status(500).json({ hata: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ hata: err.message });
+  }
+});
+
+// ── YEMEK EKLE ──
+app.post('/api/yemek-ekle', async (req, res) => {
+  try {
+    const { lokanta_id, ad, fiyat, porsiyon_kaldi } = req.body;
+    const { data, error } = await supabase
+      .from('yemekler')
+      .insert([{ lokanta_id, ad, fiyat, porsiyon_kaldi, aktif: true, bagislandi: false }])
+      .select();
+    if (error) return res.status(500).json({ hata: error.message });
+    res.json(data[0]);
+  } catch (err) {
+    res.status(500).json({ hata: err.message });
+  }
+});
+
+// ── SİPARİŞ DURUM GÜNCELLE ──
+app.post('/api/siparis-durum', async (req, res) => {
+  try {
+    const { siparis_id, durum } = req.body;
+    const { error } = await supabase
+      .from('siparisler')
+      .update({ durum })
+      .eq('id', siparis_id);
+    if (error) return res.status(500).json({ hata: error.message });
+    res.json({ mesaj: 'Durum güncellendi.' });
+  } catch (err) {
+    res.status(500).json({ hata: err.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ Backend ${PORT} portunda çalışıyor!`);
 });
